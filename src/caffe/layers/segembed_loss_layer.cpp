@@ -51,15 +51,15 @@ void SegEmbedLossLayer<Dtype>::Reshape(
 template<typename Dtype>
 void
 SegEmbedLossLayer<Dtype>::createNeighborhood(
-		Dtype maxDistance,
+		Dtype maxDistance2,
 		const Dtype* voxelSize) {
 
 	_neighbors.clear();
 
 	Point maxSize;
-	maxSize.z = maxDistance/voxelSize[0];
-	maxSize.y = maxDistance/voxelSize[1];
-	maxSize.x = maxDistance/voxelSize[2];
+	maxSize.z = maxDistance2/voxelSize[0];
+	maxSize.y = maxDistance2/voxelSize[1];
+	maxSize.x = maxDistance2/voxelSize[2];
 
 	for (int_tp dz = -maxSize.z; dz <= maxSize.z; dz++)
 		for (int_tp dy = -maxSize.y; dy <= maxSize.y; dy++)
@@ -72,17 +72,20 @@ SegEmbedLossLayer<Dtype>::createNeighborhood(
 				if (dindex <= 0)
 					continue;
 
-				Dtype distance = sqrt(dz*dz + dy*dy + dx*dx);
+				Dtype distance2 =
+						dz*dz*voxelSize[0]*voxelSize[0] +
+						dy*dy*voxelSize[1]*voxelSize[1] +
+						dx*dx*voxelSize[2]*voxelSize[2];
 
 				// consider only in circle around center
-				if (distance > maxDistance)
+				if (distance2 > maxDistance2)
 					continue;
 
 				Point offset(dz, dy, dx);
 
 				Neighbor neighbor;
 				neighbor.offset = offset;
-				neighbor.distance = distance;
+				neighbor.distance2 = distance2;
 				neighbor.dindex = dindex;
 				_neighbors.push_back(neighbor);
 			}
@@ -102,11 +105,11 @@ SegEmbedLossLayer<Dtype>::isInside(Point u) {
 
 template<typename Dtype>
 void
-SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtype distance) {
+SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtype distance2) {
 
-	Dtype embDistance = 0.0;
+	Dtype embDistance2 = 0.0;
 	for (int_tp k = 0; k < _embDimension; k++)
-		embDistance += std::pow(
+		embDistance2 += std::pow(
 				_prediction[k*_embComponentOffset + indexU] -
 				_prediction[k*_embComponentOffset + indexV], 2);
 
@@ -117,7 +120,7 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 	if (same) {
 
 		// max(0, |e_U - e_V|^2 - alpha*|U-V|^2)
-		loss = std::max((Dtype)0.0, embDistance - _alpha*distance);
+		loss = std::max((Dtype)0.0, embDistance2 - _alpha*distance2);
 
 		if (loss > 0) {
 
@@ -140,7 +143,7 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 
 		// max(0, 4 - |e_U - e_V|^2 - alpha*|U-V|^2)
 		// (4 is max squared distance between unit vectors)
-		loss = std::max((Dtype)0.0, (Dtype)4.0 - embDistance - _alpha*distance);
+		loss = std::max((Dtype)0.0, (Dtype)4.0 - embDistance2 - _alpha*distance2);
 
 		if (loss > 0) {
 
@@ -181,7 +184,7 @@ SegEmbedLossLayer<Dtype>::accumulateLossGradient(Point u) {
 		int_tp indexV = v.x + v.y*_shape.x + v.z*_shape.y*_shape.x;
 
 		// compute loss and gradient
-		computeLossGradient(indexU, indexV, neighbor.distance);
+		computeLossGradient(indexU, indexV, neighbor.distance2);
 
 		_numPairs++;
 	}
@@ -200,7 +203,7 @@ void SegEmbedLossLayer<Dtype>::Forward_cpu(
 	_gt = bottom[GT]->cpu_data();
 
 	createNeighborhood(
-			maxDistance,
+			maxDistance*maxDistance,
 			bottom[VOXEL_SIZE]->cpu_data());
 
 	caffe_set(_dloss.count(), Dtype(0.0), _dloss.mutable_cpu_data());

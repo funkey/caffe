@@ -82,7 +82,7 @@ class SegEmbedLossLayer : public LossLayer<Dtype> {
 	struct Neighbor {
 
 		Point offset;
-		Dtype distance;
+		Dtype distance2;
 		int_tp dindex;
 	};
 
@@ -92,7 +92,7 @@ class SegEmbedLossLayer : public LossLayer<Dtype> {
 
 	inline bool isInside(Point u);
 
-	void computeLossGradient(int_tp indexU, int_tp indexV, Dtype distance);
+	void computeLossGradient(int_tp indexU, int_tp indexV, Dtype distance2);
 
 	inline void accumulateLossGradient(Point voxel);
 
