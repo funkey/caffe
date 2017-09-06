@@ -45,7 +45,8 @@ void SegEmbedLossLayer<Dtype>::Reshape(
 
 	_embComponentOffset = _shape.z*_shape.y*_shape.x;
 
-	_dloss.Reshape(predShape);
+	_dlossPos.Reshape(predShape);
+	_dlossNeg.Reshape(predShape);
 }
 
 template<typename Dtype>
@@ -119,8 +120,11 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 
 	if (same) {
 
+		_numPairsPos++;
+
 		// max(0, |e_U - e_V|^2 - alpha*|U-V|^2)
 		loss = std::max((Dtype)0.0, embDistance2 - _alpha*distance2);
+		_lossPos += loss;
 
 		if (loss > 0) {
 
@@ -134,16 +138,19 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 				// dL/de_V = -2*(e_U - e_V)
 				Dtype gradientVk = -gradientUk;
 
-				_gradients[k*_embComponentOffset + indexU] += gradientUk;
-				_gradients[k*_embComponentOffset + indexV] += gradientVk;
+				_gradientsPos[k*_embComponentOffset + indexU] += gradientUk;
+				_gradientsPos[k*_embComponentOffset + indexV] += gradientVk;
 			}
 		}
 
 	} else {
 
+		_numPairsNeg++;
+
 		// max(0, 4 - |e_U - e_V|^2 - alpha*|U-V|^2)
 		// (4 is max squared distance between unit vectors)
 		loss = std::max((Dtype)0.0, (Dtype)4.0 - embDistance2 - _alpha*distance2);
+		_lossNeg += loss;
 
 		if (loss > 0) {
 
@@ -157,13 +164,12 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 				// dL/de_V = 2*(e_U - e_V)
 				Dtype gradientVk = -gradientUk;
 
-				_gradients[k*_embComponentOffset + indexU] += gradientUk;
-				_gradients[k*_embComponentOffset + indexV] += gradientVk;
+				_gradientsNeg[k*_embComponentOffset + indexU] += gradientUk;
+				_gradientsNeg[k*_embComponentOffset + indexV] += gradientVk;
 			}
 		}
 	}
 
-	_loss += loss;
 }
 
 template<typename Dtype>
@@ -185,8 +191,6 @@ SegEmbedLossLayer<Dtype>::accumulateLossGradient(Point u) {
 
 		// compute loss and gradient
 		computeLossGradient(indexU, indexV, neighbor.distance2);
-
-		_numPairs++;
 	}
 }
 
@@ -206,10 +210,14 @@ void SegEmbedLossLayer<Dtype>::Forward_cpu(
 			maxDistance*maxDistance,
 			bottom[VOXEL_SIZE]->cpu_data());
 
-	caffe_set(_dloss.count(), Dtype(0.0), _dloss.mutable_cpu_data());
-	_loss = 0;
-	_gradients = _dloss.mutable_cpu_data();
-	_numPairs = 0;
+	caffe_set(_dlossPos.count(), Dtype(0.0), _dlossPos.mutable_cpu_data());
+	caffe_set(_dlossNeg.count(), Dtype(0.0), _dlossNeg.mutable_cpu_data());
+	_lossPos = 0;
+	_lossNeg = 0;
+	_gradientsPos = _dlossPos.mutable_cpu_data();
+	_gradientsNeg = _dlossNeg.mutable_cpu_data();
+	_numPairsPos = 0;
+	_numPairsNeg = 0;
 
 	// for each voxel
 	for (int_tp z = 0; z < _shape.z; z++)
@@ -217,12 +225,25 @@ void SegEmbedLossLayer<Dtype>::Forward_cpu(
 			for (int_tp x = 0; x < _shape.x; x++)
 				accumulateLossGradient(Point(z, y, x));
 
-	// normalize loss
-	top[0]->mutable_cpu_data()[0] = _loss/_numPairs;
+	// normalize loss and gradient
+	if (_numPairsPos > 0) {
 
-	// normalize gradient
-	for (int_tp i = 0; i < _dloss.count(); i++)
-		_gradients[i] /= _numPairs;
+		for (int_tp i = 0; i < _dlossPos.count(); i++)
+			_gradientsPos[i] /= _numPairsPos;
+
+		_lossPos /= _numPairsPos;
+	}
+
+	if (_numPairsNeg > 0) {
+
+		for (int_tp i = 0; i < _dlossNeg.count(); i++)
+			_gradientsNeg[i] /= _numPairsNeg;
+
+		_lossNeg /= _numPairsNeg;
+	}
+
+	// set loss
+	top[0]->mutable_cpu_data()[0] = _lossPos + _lossNeg;
 }
 
 template<typename Dtype>
@@ -234,14 +255,15 @@ void SegEmbedLossLayer<Dtype>::Backward_cpu(
 	if (propagate_down[PRED]) {
 
 		Dtype* bottom_diff = bottom[PRED]->mutable_cpu_diff();
-		const Dtype* gradients = _dloss.cpu_data();
+		const Dtype* gradientsPos = _dlossPos.cpu_data();
+		const Dtype* gradientsNeg = _dlossNeg.cpu_data();
 
 		// Clear the diff
 		caffe_set(bottom[PRED]->count(), Dtype(0.0), bottom_diff);
 
 #pragma omp parallel for
 		for (int_tp i = 0; i < bottom[PRED]->count(); ++i) {
-			bottom_diff[i] = gradients[i];
+			bottom_diff[i] = gradientsPos[i] + gradientsNeg[i];
 		}
 	}
 }

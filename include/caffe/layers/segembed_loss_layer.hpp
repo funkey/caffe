@@ -101,16 +101,20 @@ class SegEmbedLossLayer : public LossLayer<Dtype> {
 
 	const Dtype* _prediction;
 	const Dtype* _gt;
-	Dtype* _gradients;
+	Dtype* _gradientsPos;
+	Dtype* _gradientsNeg;
 	Dtype _alpha;
 
 	int_tp _embDimension;
 	int_tp _embComponentOffset;
 
-	int_tp _numPairs;
+	int_tp _numPairsPos;
+	int_tp _numPairsNeg;
 
-	Dtype _loss;
-	Blob<Dtype> _dloss;
+	Dtype _lossPos;
+	Dtype _lossNeg;
+	Blob<Dtype> _dlossPos;
+	Blob<Dtype> _dlossNeg;
 };
 
 }	// namespace caffe
