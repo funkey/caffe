@@ -61,6 +61,7 @@ SegEmbedLossLayer<Dtype>::createNeighborhood(
 	maxSize.y = maxDistance2/voxelSize[1];
 	maxSize.x = maxDistance2/voxelSize[2];
 
+	std::cout << "neighborhood:" << std::endl;
 	for (int_tp dz = -maxSize.z; dz <= maxSize.z; dz++)
 		for (int_tp dy = -maxSize.y; dy <= maxSize.y; dy++)
 			for (int_tp dx = -maxSize.x; dx <= maxSize.x; dx++) {
@@ -88,6 +89,8 @@ SegEmbedLossLayer<Dtype>::createNeighborhood(
 				neighbor.distance2 = distance2;
 				neighbor.dindex = dindex;
 				_neighbors.push_back(neighbor);
+
+				std::cout << "\t" << dz << ", " << dy << ", " << dx << " at " << distance2 << " d-index " << dindex << std::endl;
 			}
 }
 
@@ -114,13 +117,19 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 				_prediction[k*_embComponentOffset + indexV], 2);
 
 	bool same = (_gt[indexU] == _gt[indexV]);
+	std::cout << "\t\thave embedded distance " << embDistance2 << std::endl;
+	std::cout << "\t\thave labels " << _gt[indexU] << " and " << _gt[indexV] << std::endl;
 
 	Dtype loss = 0;
 
 	if (same) {
 
+		std::cout << "\t\thave same label" << std::endl;
+
 		// max(0, |e_U - e_V|^2 - alpha*|U-V|^2)
 		loss = std::max((Dtype)0.0, embDistance2 - _alpha*distance2);
+
+		std::cout << "\t\tloss = " << loss << std::endl;
 
 		if (loss > 0) {
 
@@ -136,14 +145,21 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 
 				_gradients[k*_embComponentOffset + indexU] += gradientUk;
 				_gradients[k*_embComponentOffset + indexV] += gradientVk;
+
+				std::cout << "\t\tgradient on u, k=" << k << ": " << gradientUk  << std::endl;
+				std::cout << "\t\tgradient on v, k=" << k << ": " << gradientVk  << std::endl;
 			}
 		}
 
 	} else {
 
+		std::cout << "\t\thave different label" << std::endl;
+
 		// max(0, 4 - |e_U - e_V|^2 - alpha*|U-V|^2)
 		// (4 is max squared distance between unit vectors)
 		loss = std::max((Dtype)0.0, (Dtype)4.0 - embDistance2 - _alpha*distance2);
+
+		std::cout << "\t\tloss = " << loss << std::endl;
 
 		if (loss > 0) {
 
@@ -159,6 +175,9 @@ SegEmbedLossLayer<Dtype>::computeLossGradient(int_tp indexU, int_tp indexV, Dtyp
 
 				_gradients[k*_embComponentOffset + indexU] += gradientUk;
 				_gradients[k*_embComponentOffset + indexV] += gradientVk;
+
+				std::cout << "\t\tgradient on u, k=" << k << ": " << gradientUk  << std::endl;
+				std::cout << "\t\tgradient on v, k=" << k << ": " << gradientVk  << std::endl;
 			}
 		}
 	}
@@ -170,6 +189,8 @@ template<typename Dtype>
 void
 SegEmbedLossLayer<Dtype>::accumulateLossGradient(Point u) {
 
+	std::cout << "computing loss of " << u.z << ", " << u.y << ", " << u.x << std::endl;
+
 	// for each neighbor
 	for (const Neighbor& neighbor : _neighbors) {
 
@@ -177,11 +198,19 @@ SegEmbedLossLayer<Dtype>::accumulateLossGradient(Point u) {
 				u.z + neighbor.offset.z,
 				u.y + neighbor.offset.y,
 				u.x + neighbor.offset.x);
-		if (!isInside(v))
+
+		std::cout << "\tto " << v.z << ", " << v.y << ", " << v.x << std::endl;
+
+		if (!isInside(v)) {
+
+			std::cout << "\t=> outside of volume" << std::endl;
 			continue;
+		}
 
 		int_tp indexU = u.x + u.y*_shape.x + u.z*_shape.y*_shape.x;
 		int_tp indexV = v.x + v.y*_shape.x + v.z*_shape.y*_shape.x;
+
+		std::cout << "\tindices are " << indexU << " and " << indexV << std::endl;
 
 		// compute loss and gradient
 		computeLossGradient(indexU, indexV, neighbor.distance2);
