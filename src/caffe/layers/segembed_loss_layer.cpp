@@ -270,7 +270,7 @@ void SegEmbedLossLayer<Dtype>::Backward_cpu(
 
 #pragma omp parallel for
 		for (int_tp i = 0; i < bottom[PRED]->count(); ++i) {
-			bottom_diff[i] = -gradients[i];
+			bottom_diff[i] = gradients[i];
 		}
 	}
 }
